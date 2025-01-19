@@ -1,0 +1,616 @@
+---
+title: "30078909 CW1"
+author: '30078909'
+date: "2024-01-16"
+output: html_document
+---
+TASK A
+```{r}
+
+lib<-c("tm","tidytext","ggplot2","dplyr","wordcloud","syuzhet","tibble","textstem","textdata","tidyr")
+
+for (l in lib){
+  library(l, character.only=TRUE)
+}
+
+```
+
+```{r loading dataset}
+
+
+# Loading the dataset
+Book_Reviews <- 'C:\\Users\\tolao\\Desktop\\R\\MS4S09_CW_Book_Reviews.csv'
+BR <- read.csv(Book_Reviews)  
+
+summary(BR)
+
+# Additional EDA - Understanding distributions of ratings, prices, and genres
+ggplot(BR, aes(x = Rating)) + geom_bar(fill = "steelblue") + labs(title = "Distribution of Ratings")
+ggplot(BR, aes(x = Book_Price)) + geom_histogram(fill = "darkgreen", binwidth = 1) + labs(title = "Distribution of Book Prices")
+ggplot(BR, aes(x = Book_Price)) + 
+  geom_histogram(fill = "darkgreen", binwidth = 1) + 
+  xlim(0, 100) +  # Setting x-axis limits to 0 and 500
+  labs(title = "Distribution of Book Prices") +
+  theme_minimal()
+
+ggplot(BR, aes(x = Genre)) + geom_bar(fill = "tomato") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + labs(title = "Distribution of Book Genres")
+
+```
+
+```{r}
+summary(BR)
+
+
+BR<-BR[c(1,4,6,7,11)]
+BR<-na.omit(BR)
+BR$Review_no<-1:nrow(BR)
+summary(BR)
+```
+
+```{r sampling of data}
+set.seed(1)
+
+sample_ind<-sample(length(unique(BR$Review_title)), 5)#for setting the sample index
+BR_sample<-unique(BR$Review_title)[sample_ind]
+BR1<- BR%>%
+  filter(Review_title %in% BR_sample)
+print(summary(BR1))
+head(BR1)
+```
+
+```{r tokenization}
+word_token <- BR1%>%
+  unnest_tokens(output = word, input = "Review_text", token = "words", to_lower = TRUE)
+bigram_token <- BR1%>%
+  unnest_tokens(output = bigrams, input = "Review_text", token = "ngrams",n=2, to_lower =TRUE )
+```
+
+```{r plotting plots}
+word_count<-word_token%>%
+  count(word, sort=TRUE)
+ggplot(word_count[1:10,], aes(x=reorder(word, n), y=n))+
+  geom_col(fill="blue")+
+  labs(x="words", y="Freq")+
+  coord_flip()+
+  theme_minimal()
+  
+```
+
+```{r clean data}
+clean_token <- word_token %>%
+  anti_join(stop_words, by = "word")
+  
+clean_token$word <- gsub("[^a-zA-Z ]", "", clean_token$word) %>% 
+  na_if("") %>% 
+  lemmatize_words()
+
+clean_token <- na.omit(clean_token)
+
+
+
+untoken_data <- clean_token %>%
+  group_by(Review_no) %>%
+  summarize(clean_review = paste(word, collapse = " ")) %>%
+  inner_join(BR1[,c(2,3,6)], by="Review_no")
+
+clean_bigram <- untoken_data %>%
+  unnest_tokens(output = bigram, input = "clean_review", token = "ngrams", n=2, to_lower = TRUE)
+```
+
+```{r clean word plot}
+word_count <- clean_token %>%
+  count(word, sort = TRUE)
+
+top_word <- top_n(word_count,10,n)$word
+
+filtered_word_count <- filter(word_count, word %in% top_word)
+filtered_word_count$word <- factor(filtered_word_count$word, levels = top_word[length(top_word):1])
+
+ggplot(filtered_word_count, aes(x = reorder(word, n), y = n)) +
+  geom_col(fill = "blue") +
+  labs(x = "Words", y = "Frequency") +
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r clean bigram plot}
+bigram_count <- clean_bigram %>%
+  count(bigram, sort = TRUE)
+
+top_bigram <- top_n(bigram_count,10,n)$bigram
+
+filtered_bigram_count <- filter(bigram_count, bigram %in% top_bigram)
+filtered_bigram_count$bigram <- factor(filtered_bigram_count$bigram, levels = top_bigram[length(top_bigram):1])
+
+ggplot(filtered_bigram_count, aes(x = reorder(bigram, n), y = n)) +
+  geom_col(fill = "blue") +
+  labs(x = "Bigrams", y = "Frequency") +
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r grouped word_plot}
+
+# Grouped Words
+top_word <- top_n(word_count,10,n)$word # Gets a vector of top 10 words
+
+# Groups clean_tokens by restaurant and counts the number of occurences of each word, and filters to only the top 10 words.
+grouped_count <- group_by(clean_token, Review_title) %>% 
+  count(word) %>%
+  filter(word %in% top_word)
+
+grouped_count$word <- factor(grouped_count$word, levels = top_word[length(top_word):1]) # Orders the top words according to overall frequency
+
+ggplot(data = grouped_count, aes(x = word, y = n, fill = Review_title)) + # Fill keyword allows groupings
+  geom_col(position = "dodge") + # position = dodge creates grouped bar chart
+  labs(x = "Words", y = "Fill", fill = "Review_title") +
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r grouped bigram plot}
+# Grouped Bigrams
+top_bigram <- top_n(bigram_count,10,n)$bigram
+
+grouped_count <- group_by(clean_bigram, Review_title) %>%
+  count(bigram) %>%
+  filter(bigram %in% top_bigram)
+
+grouped_count$bigram <- factor(grouped_count$bigram, levels = top_bigram[length(top_bigram):1])
+
+ggplot(data = grouped_count, aes(x = bigram, y = n, fill = Review_title)) +
+  geom_col(position = "dodge") +
+  labs(x = "Bigrams", y = "Fill", fill = "Review_title") +
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r Clean Word Cloud}
+set.seed(1)
+wordcloud(words = word_count$word, freq = word_count$n, min.freq = 20, random.order=FALSE, random.color=FALSE, colors = sample(colors(), size = 10))
+```
+TASK B
+```{r bing lexicon}
+bing_sentiments <- get_sentiments("bing") # Loads the bing sentiment lexicon
+
+summary(bing_sentiments)
+print(unique(bing_sentiments$sentiment))
+set.seed(1)
+bing_sentiments[sample(nrow(bing_sentiments), 1000),] # Returns sample of 5 rows
+```
+
+```{r applying bing}
+# Create dataset containing only words with associated sentiment & adds sentiment column.
+sentiment_data <- clean_token %>%
+  inner_join(get_sentiments("bing"), by = "word") # Joins lexicon to dataset using only words that are in both.
+
+# Calculate Sentiment scores for each review
+sentiment_score <- sentiment_data %>%
+  group_by(Review_no) %>%
+  summarize(bing_sentiment = sum(sentiment == "positive") - sum(sentiment == "negative")) # Calculates sentiment score as sum of number of positive and negative sentiments
+
+# Merge with df
+BR_with_sentiment = BR1 %>%
+  inner_join(sentiment_score, by = "Review_no")
+# Assuming clean_token has columns 'word' and 'Review_no'
+```
+
+
+Let's inspect the reviews with highest and lowest sentiment
+
+```{r show-sentiment-extremes}
+
+# Identify the index of the review with the lowest sentiment score
+lowest_sentiment_index <- which.min(BR_with_sentiment$bing_sentiment)
+# Extract the review with the lowest sentiment
+lowest_sentiment_review <- BR_with_sentiment$Review_text[lowest_sentiment_index]
+cat("Review with the Lowest Sentiment:\n", lowest_sentiment_review, "\n\n")
+
+# Identify the index of the review with the highest sentiment score
+highest_sentiment_index <- which.max(BR_with_sentiment$bing_sentiment)
+# Extract the review with the highest sentiment
+highest_sentiment_review <- BR_with_sentiment$Review_text[highest_sentiment_index]
+cat("Review with the Highest Sentiment:\n", highest_sentiment_review)
+```
+
+```{r bing visualisations, message=FALSE, warning=FALSE}
+
+# Histogram of sentiment scores
+ggplot(BR_with_sentiment, aes(x = bing_sentiment)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black") +
+  labs(title = "Histogram of Bing Sentiment Scores", x = "Sentiment Score", y = "Frequency") +
+  theme_minimal()
+
+# Average Sentiment by Book
+book_sentiment <- BR_with_sentiment %>%
+  group_by(Review_title) %>%
+  summarize(Average_Bing_Sentiment = mean(sentiment_score), .groups = 'drop')
+
+ggplot(book_sentiment, aes(x = reorder(Review_title, Average_Bing_Sentiment), y = Average_Bing_Sentiment, fill = Review_title)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Average Sentiment Score by Book", x = "Book", y = "Average Sentiment Score") +
+  theme_minimal()
+
+# Box Plot of Sentiment against Genre
+ggplot(BR_with_sentiment, aes(x = Genre, y = bing_sentiment , fill = Genre)) +
+  geom_boxplot() +
+  labs(title = "Box Plot of Bing Sentiment Score vs. Genre",
+       x = "Genre",
+       y = "Sentiment Score") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Box Plot of Sentiment against Rating
+ggplot(BR_with_sentiment, aes(x = as.factor(Rating), y = bing_sentiment)) +
+  geom_boxplot(fill = "orange", color = "black") +
+  labs(title = "Box Plot of Bing Sentiment Score vs. Rating",
+       x = "Rating",
+       y = "Sentiment Score") +
+  theme_minimal()
+
+```
+Conclusion
+Histogram of Bing Sentiment Scores:
+
+The histogram shows a bimodal distribution of sentiment scores, with peaks around the lower and higher ends of the scale. This suggests that the reviews tend to be polarized, with a significant number of reviews being either very positive or very negative.
+The absence of bars in the middle range may indicate that there are fewer neutral reviews or that the sentiment analysis tends to categorize reviews as either positive or negative, with less ambiguity.
+Average Sentiment Score by Book:
+
+The bar chart displays the average sentiment score for different books. Some books have a higher average sentiment score, which could be indicative of more positive reception among readers.
+Books with higher average sentiment scores could be potential recommendations for readers looking for well-received books, while those with lower scores may require further investigation to understand the cause of the negative sentiments.
+Box Plot of Bing Sentiment Score vs. Genre:
+
+The box plot by genre reveals the spread of sentiment within each genre category. Some genres may have a wider range of sentiment scores, indicating varied reactions among readers, while others show more consistency in sentiment.
+If a particular genre consistently shows higher sentiment scores, it may reflect a generally positive reception of that genre by readers, which could be useful information for publishers and authors.
+Box Plot of Bing Sentiment Score vs. Rating:
+
+The box plot comparing sentiment scores with ratings shows that higher-rated books tend to also have higher sentiment scores. This alignment suggests that the numerical rating is generally a good predictor of the sentiment expressed in the review text.
+However, there may still be variability within ratings, indicating that even among books with high ratings, sentiment can vary, which underscores the importance of textual sentiment analysis alongside numerical ratings.
+Conclusions:
+The sentiment analysis results align with ratings to a certain extent, reinforcing the ratings with qualitative data from the review texts.
+The polarized distribution of sentiment scores indicates strong opinions among reviewers, which could be a point of interest for authors and publishers to investigate further.
+The variability in sentiment scores within genres and ratings suggests that while numerical ratings provide a quick reference, detailed sentiment analysis can offer deeper insights into reader opinions.
+For books with lower average sentiment scores, it would be beneficial to read the reviews to understand the specific aspects that led to negative sentiments, as this could inform future improvements or highlight areas where reader expectations were not met.
+
+TASK C
+```{r}
+libraries <- c("tm", "tidytext", "ggplot2", "wordcloud", "syuzhet", "dplyr", "tibble", "textstem", "textdata", "tidyr", "Matrix", "topicmodels", "stringr", "reshape2", "LDAvis", "jsonlite")
+
+
+for (lib in libraries) { 
+  library(lib, character.only=TRUE) #Library takes function names without quotes, character only must be used in a loop of this kind.
+}
+```
+
+```{r}
+
+
+
+TM <- BR1
+
+summary(TM)
+head(TM)
+
+```
+```{r Select Data}
+# Select Columns
+TM <- TM %>% 
+  select(c("Review_title", "Review_text", "Genre", "Rating")) %>%
+  filter(str_count(Review_text) >= 200 & str_count(Review_text) <= 400)
+
+# Replace values of "unknown in Genre with NA
+TM$Genre <- na_if(TM$Genre, "unknown")
+
+TM <- na.omit(TM) # Removes all rows containing null values
+
+TM$Review_no <- 1:nrow(TM)
+
+if(nrow(TM) > 1000) {
+  set.seed(1) # for reproducibility
+  TM <- sample_n(TM, 1000)
+}
+```
+
+```{r Create TDM}
+# Convert text column to corpus
+corpus <- VCorpus(VectorSource(TM$Review_text))
+
+# Apply cleaning
+corpus <- tm_map(corpus, content_transformer(tolower)) %>%
+  tm_map(content_transformer(function(x) gsub("[^a-zA-Z ]", "", x))) %>%
+  tm_map(removeWords, stopwords("en")) %>%
+  tm_map(stemDocument)
+
+# Convert to a term document matrix
+tdm <- TermDocumentMatrix(corpus, control = list(wordLengths = c(3, 15)))
+
+tdm_matrix <- as.matrix(tdm)
+```
+
+
+```{r Word Frequency Distribution}
+term_frequencies <- rowSums(tdm_matrix)
+
+# Create a data frame for plotting
+term_frequency_TM <- data.frame(term = names(term_frequencies), frequency = term_frequencies)
+
+# Sort the data frame by frequency in descending order and select the top 10
+top_terms <- term_frequency_TM %>%
+  arrange(desc(frequency)) %>%
+  head(10)
+
+# Display the top 10 terms
+print(top_terms)
+
+# Create the histogram
+ggplot(term_frequency_TM, aes(x = frequency)) +
+  geom_histogram(binwidth =1) +
+  labs(title = "Histogram of Term Frequencies",
+       x = "Term Frequency",
+       y = "Number of Terms") +
+  theme_minimal()
+```
+
+```{r Word Filtering}
+# Find terms that appear in more than 10% of documents
+frequent_terms <- findFreqTerms(tdm, lowfreq = 0.1 * ncol(tdm_matrix))
+# Find terms that appear in less than 1% of documents
+rare_terms <- findFreqTerms(tdm, highfreq = 0.01 * ncol(tdm_matrix))
+
+print("Frequent Terms")
+print(frequent_terms)
+print("First 20 Infrequent Terms")
+print(rare_terms[1:20])
+
+# Edit list of frequent words to keep useful ones
+to_keep <- c("famili", "love", "murder")
+
+to_remove <- frequent_terms[!frequent_terms %in% to_keep]
+
+filtered_tdm_matrix <- tdm_matrix[!rownames(tdm_matrix) %in% to_remove, ]
+filtered_tdm_matrix <- filtered_tdm_matrix[!rownames(filtered_tdm_matrix) %in% rare_terms, ]
+
+# Remove 0 sum columns from tdm.
+
+# Calculate column sums
+column_sums <- colSums(filtered_tdm_matrix)
+
+# Identify columns that are all zeros
+zero_columns <- which(column_sums == 0)
+
+# Remove these columns
+if(length(zero_columns) > 0) {
+  # Remove these columns
+  filtered_tdm_matrix <- filtered_tdm_matrix[, -zero_columns]
+} else {
+  # If no columns are all zeros, just use the original matrix
+  print("No zero columns in TDM matrix")
+}
+```
+```{r Word Frequency Distribution 2}
+term_frequencies <- rowSums(filtered_tdm_matrix)
+
+# Create a data frame for plotting
+term_frequency_TM <- data.frame(term = names(term_frequencies), frequency = term_frequencies)
+
+# Sort the data frame by frequency in descending order and select the top 10
+top_terms <- term_frequency_TM %>%
+  arrange(desc(frequency)) %>%
+  head(10)
+
+# Display the top 10 terms
+print(top_terms)
+
+# Create the histogram
+ggplot(term_frequency_TM, aes(x = frequency)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of Term Frequencies",
+       x = "Term Frequency",
+       y = "Number of Terms") +
+  theme_minimal()
+```
+
+```{r Initial LDA model}
+TMd <- t(filtered_tdm_matrix)
+lda_model <- LDA(TMd, k = 5)
+```
+
+
+```{r LDA Visualisation}
+topics <- tidy(lda_model, matrix = "beta")
+topics
+
+top_terms <- topics %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  ggplot(aes(x =reorder(term, beta), y = beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip() 
+```
+
+```{r Choosing k}
+range_k <- seq(2, 10, by = 1)  # Adjust the range as needed
+perplexities <- sapply(range_k, function(k) {
+  model <- LDA(TMd, k = k, control = list(seed = 1))
+  perplexity(model)
+})
+
+# Plotting perplexities
+plot(range_k, perplexities, type = "b", xlab = "Number of Topics", ylab = "Perplexity")
+```
+
+
+```{r pca visualisation}
+
+library(servr)
+set.seed(1)
+lda_model <- LDA(TMd, k = 10)
+
+lda_vis_data <- createJSON(phi = posterior(lda_model)$terms,
+                          theta = posterior(lda_model)$topics,
+                          doc.length = rowSums(as.matrix(TMd)),
+                          vocab = colnames(as.matrix(TMd)),
+                          term.frequency = colSums(as.matrix(TMd)))
+
+(serVis(lda_vis_data))
+```
+
+```{r}
+topics <- tidy(lda_model, matrix = "beta")
+
+ggsave("plot.png", width = 10, height = 8)
+
+top_terms <- topics %>%
+  group_by(topic) %>%
+  top_n(6, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  coord_flip()
+
+documents <- tidy(lda_model, matrix = "gamma")
+```
+
+
+
+TASK D
+
+```{r}
+# Apply transformations one at a time and check the corpus
+
+# To lowercase
+corpus <- tm_map(corpus, content_transformer(tolower))
+
+
+# Remove punctuation
+corpus <- tm_map(corpus, removePunctuation)
+
+
+```
+```{r}
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, removeWords, stopwords("english"))
+corpus <- tm_map(corpus, stripWhitespace)
+```
+
+
+```{r}
+# creating a term document
+dtm <- TermDocumentMatrix(corpus, control = list(weighting = weightTfIdf))
+dtm <- removeSparseTerms(dtm, sparse = 0.99)
+```
+
+```{r}
+# Convert to matrix and then to a data frame
+dtm_matrix <- as.matrix(dtm)
+dtm_df <- as.data.frame(dtm_matrix)
+
+# Make the data frame tidy
+tidy_dtm <- dtm_df %>%
+  rownames_to_column(var = "term") %>%
+  gather(document, count, -term) %>%
+  mutate(document = as.integer(gsub("V", "", document)))
+
+```
+
+TF-IDF vectorization
+```{r}
+#to compute the TF-IDF vectorization
+
+tf_idf <- tidy_dtm %>%
+  bind_tf_idf(term, document, count)
+# Check the head of the TF-IDF data frame
+head(tf_idf)
+
+```
+
+```{r}
+library(spacyr)
+
+```
+```{r}
+spacy_initialize(condaenv = "r-reticulate")
+
+```
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+```
+
+```{r}
+library(NMF)
+if (!requireNamespace("tm", quietly = TRUE)) {
+    install.packages("tm")
+}
+library(tm)
+
+tdm_matrix <- as.matrix(tdm)
+
+# Now you can apply the nmf function to the matrix
+rank <- 5 # Specify the rank (number of topics/components) you want to find
+result <- nmf(tdm_matrix, rank, method = "brunet")
+```
+
+```{r}
+
+# Assuming `result` is your NMF model result
+W <- basis(result)
+
+# Convert to dataframe for ggplot
+topic_word_dist <- as.data.frame(W)
+words <- rownames(topic_word_dist)
+topic_word_dist$word <- words
+
+# Melting the dataframe for ggplot
+library(reshape2)
+df_long <- melt(topic_word_dist, id.vars = "word")
+
+# Filter for top n words per topic
+top_n <- 10 # Adjust this to change the number of top words displayed
+df_top_n <- df_long %>% 
+  group_by(variable) %>% 
+  top_n(top_n, wt = value) %>%
+  ungroup()
+
+# Plotting top n words for each topic
+library(ggplot2)
+ggplot(df_top_n, aes(x = reorder(word, -value), y = value)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  facet_wrap(~ variable, scales = "free_y") + # Changed to free_y for better scaling
+  labs(x = "Word", y = "Importance", title = sprintf("Top %d Words in Each Topic", top_n)) +
+  coord_flip() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+```{r}
+H <- coef(result)
+
+# Assuming you have a vector `documents` that contains the names or IDs of your documents
+#Convert to dataframe
+doc_topic_dist <- as.data.frame(H)
+
+# Using heatmap to visualize
+heatmap(as.matrix(doc_topic_dist), Rowv = NA, Colv = NA, col = heat.colors(256), scale = "column",
+        margin = c(5, 10), xlab = "Document", ylab = "Topic", main = "Document-Topic Associations")
+```
+By looking at the top words in each topic, one might infer the theme or subject matter of each topic. For instance, words like "book", "read", "story", and "recommend" suggest that these topics may relate to book reviews or literary discussions.
+The heatmap could be used to infer which documents are most relevant to the topics defined by the top words. For example, if a column (document) is particularly dark for the topic associated with words like "book" and "read", it might be a document that heavily discusses literature.
+
+
+
+
+```{r}
+
+```
